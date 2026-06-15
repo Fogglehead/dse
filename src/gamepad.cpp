@@ -313,6 +313,62 @@ void Gamepad::process()
 		default:
 			break;
 	}
+
+	// --- CUSTOM BLOOM RESET MACRO WITH TOGGLE & PICO LED ---
+        static bool macro_enabled = false; // Starts OFF
+        static bool toggle_held = false;   
+        static uint32_t r2_press_start = 0;
+        static bool led_initialized = false;
+
+        // The standard onboard LED pin for the Raspberry Pi Pico 1 and Pico 2
+        const uint PICO_LED_PIN = 25; 
+
+        // 1. Initialize the physical LED the very first time this loop runs
+        if (!led_initialized) {
+            gpio_init(PICO_LED_PIN);
+            gpio_set_dir(PICO_LED_PIN, GPIO_OUT);
+            gpio_put(PICO_LED_PIN, 0); // Ensure it starts turned off
+            led_initialized = true;
+        }
+        
+        uint32_t current_time = getMillis();
+
+        // 2. Check for the Toggle Combo: Triangle (B4) + D-Pad Up
+        bool combo_pressed = (state.dpad & GAMEPAD_MASK_UP) && (state.buttons & GAMEPAD_MASK_B4);
+
+        if (combo_pressed && !toggle_held) {
+            macro_enabled = !macro_enabled; // Flip the internal switch
+            toggle_held = true;             // Lock the toggle
+            
+            // Turn the Pico's physical green LED ON (1) or OFF (0)
+            gpio_put(PICO_LED_PIN, macro_enabled ? 1 : 0);
+            
+        } else if (!combo_pressed) {
+            toggle_held = false;            // Unlock when user lets go
+        }
+
+        // 3. Execute the Macro ONLY if it is currently enabled
+        if (macro_enabled) {
+            if (state.rt > 10 || (state.buttons & GAMEPAD_MASK_R2)) {
+                
+                if (r2_press_start == 0) {
+                    r2_press_start = current_time; // Start the clock
+                }
+
+                uint32_t elapsed = current_time - r2_press_start;
+                
+                // 2000ms hold + 10ms release cycle
+                if (elapsed % 2010 >= 2000) {
+                    state.rt = 0;                       // Force analog to 0
+                    state.buttons &= ~GAMEPAD_MASK_R2;  // Force digital to released
+                }
+            } else {
+                r2_press_start = 0; 
+            }
+        } else {
+            r2_press_start = 0; 
+        }
+        // --- END CUSTOM MACRO ---
 }
 
 void Gamepad::read()
